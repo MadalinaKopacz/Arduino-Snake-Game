@@ -22,7 +22,10 @@ Introduction to Robotics laboratory project, taken in the 3rd year at the **Facu
 
 
 #### BackStory
-We all know our beloved old Snake game. Moreover, a lot of Gen Z-ers that spend a lot of time on TikTok know about the Dabloon trend: https://vm.tiktok.com/ZMFnykqLu/
+We all know our beloved old Snake game. Moreover, a lot of Gen Z-ers that spend a lot of time on TikTok know about the Dabloon trend:
+- https://vm.tiktok.com/ZMFnyaoAB/
+- https://vm.tiktok.com/ZMFnykqLu/
+
 So what better way to revive the Snake Game for the younger henerations, than by making our dear snake a dabloon collector.
 
 #### Game description
