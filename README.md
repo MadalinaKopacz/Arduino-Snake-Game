@@ -16,6 +16,9 @@ Introduction to Robotics laboratory project, taken in the 3rd year at the **Facu
 - Potentiometer
 - Resistors
 - Wires
+- 1 10μF condenser
+- 1 ceramic condenser
+
 
 
 #### BackStory
