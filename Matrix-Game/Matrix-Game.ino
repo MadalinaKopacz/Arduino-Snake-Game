@@ -223,7 +223,7 @@ const char* instructions = "Use the joystick to move. Eat the blinking dot. Do n
 const char* about1 = "GAME NAME: A Dabloon Story";
 const char* about2 = "AUTHOR: Madalina-Elena Kopacz";
 const char* about3 = "GITHUB: https://github.com/MadalinaKopacz/";
-int maximumLength = 15;
+int maximumLength = 64;
 
 unsigned short int menuOption = 1;
 unsigned short int aboutOption = 1;
