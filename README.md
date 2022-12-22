@@ -29,7 +29,7 @@ We all know our beloved old Snake game. Moreover, a lot of Gen Z-ers that spend 
 So what better way to revive the Snake Game for the younger generations, than by making our dear snake a dabloon collector.
 
 #### Game description
-The player controls a creature, resembling a snake, which roams around on a bordered plane, picking up dabloons (blinking dots), trying to avoid hitting itself.  The goal is collecting as many dabloons as possible. During the game, the speed increases fast and the snake length grows/=.
+The player controls a creature, resembling a snake, which roams around on a bordered plane, picking up dabloons (blinking dots), trying to avoid hitting itself.  The goal is collecting as many dabloons as possible. During the game, the speed increases fast and the snake length grows.
 
 #### Instruction on how to play
 You need to collect the dabloons (blinking dots). Each blinking dot represents one dabloon. You can move on the board with the joystick. 
