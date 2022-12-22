@@ -232,7 +232,7 @@ unsigned short int highScoreOption = 1;
 unsigned short int settingsOption = 1;
 byte initialSnakeDirection = 3;
 byte snakeDirection = initialSnakeDirection;
-float snakeSpeed = 0.0;
+float snakeSpeed = 0;
 
 bool shouldDisplayFinish1 = false;
 
@@ -486,6 +486,10 @@ void pressButtonInMenu(const bool givenGoToAction) {
     if (!givenGoToAction && menuOption == 1) {
       scoreCloseGame();
       closeGame();
+      snakeLength = initialSnakeLength;
+      snakeSpeed = 0;
+
+
     }
     if (givenGoToAction && menuOption == 1) {
       score = 0;
