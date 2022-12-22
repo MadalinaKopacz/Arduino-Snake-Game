@@ -7,7 +7,6 @@ const byte enable = 8;
 const byte buzzerPin = 3;
 const byte lcdControlPin = 5;
 
-
 const byte d4 = 7;
 const byte d5 = 6;
 const byte d6 = 13;
@@ -27,6 +26,9 @@ const byte minRow = 0;
 const byte maxRow = 8;
 const byte minCol = 0;
 const byte maxCol = 8;
+int moveDuration = 300;
+unsigned long lastMove = 0;
+
 
 const unsigned long blinkDuration = 300;
 const unsigned long resetTime = 3000;
@@ -39,6 +41,9 @@ unsigned long lastFinishGameTime = 0;
 byte setting = 0;
 byte audioOn;
 
+unsigned long lastJoyMove = 0;
+unsigned long joyDebounce = 10;
+
 byte inMenu = 1;
 
 const short int buzzerTone = 1000;
@@ -47,12 +52,20 @@ const short int blinkStartTime = 500;
 const short int buzzerDuration = 200;
 unsigned long buzzerStart = 0;
 unsigned long blinkStart = 0;
-unsigned short int lcdValueMapped;
+unsigned short int lcdValueMapped = 40;
 unsigned short int matrixValue;
 unsigned short int chrPos;
 
 unsigned short int speed;
-unsigned short int damage;
+unsigned short int level;
+
+
+unsigned long lastSpeedChange = 0;
+int speedChangeDuration = 3000;
+
+float maxSpeed = 200.0;
+
+float speedFactor = 15.0;
 
 
 LedControl lc = LedControl(dinPin, clockPin, loadPin, 1);
@@ -60,7 +73,7 @@ LedControl lc = LedControl(dinPin, clockPin, loadPin, 1);
 byte matrixBrightness = 2;
 
 byte xPos = 0;
-byte yPos = 7;
+byte yPos = 0;
 
 byte xLastPos = 0;
 byte yLastPos = 0;
@@ -68,6 +81,7 @@ byte yLastPos = 0;
 byte newFoodPosX = -1;
 byte newFoodPosY = -1;
 byte needFood = true;
+byte foodBlinkStatus = 1;
 
 const int minThreshold = 200;
 const int maxThreshold = 600;
@@ -87,7 +101,10 @@ uint16_t characterCursor = 0;
 int chrOption = 65;
 int diffOption = 1;
 
+bool isGameOver = false;
+bool isWin = false;
 
+int changedName = false;
 
 byte matrixByte[matrixSize] = {
   B00000000,
@@ -164,8 +181,6 @@ const byte upArrow = 0;
 const byte downArrow = 1;
 const short int leftArrow = 3;
 const short int rightArrow = 4;
-const short int heart = 5;
-
 
 
 const short int cat = 2;
@@ -204,18 +219,20 @@ byte readingPress = LOW;
 unsigned long pressedDebounceTime = 0;
 unsigned long releasedDebounceTime = 0;
 
-const char* instructions = "Use the joystick to move. Eat the blinking dot. Press the joystick to go back.";
+const char* instructions = "Use the joystick to move. Eat the blinking dot. Do not hit yourself.";
 const char* about1 = "GAME NAME: A Dabloon Story";
 const char* about2 = "AUTHOR: Madalina-Elena Kopacz";
 const char* about3 = "GITHUB: https://github.com/MadalinaKopacz/";
-
+int maximumLength = 15;
 
 unsigned short int menuOption = 1;
 unsigned short int aboutOption = 1;
 unsigned short int soundOption = 1;
 unsigned short int highScoreOption = 1;
 unsigned short int settingsOption = 1;
-
+byte initialSnakeDirection = 3;
+byte snakeDirection = initialSnakeDirection;
+float snakeSpeed = 0.0;
 
 bool shouldDisplayFinish1 = false;
 
@@ -254,17 +271,6 @@ const byte customRightArrow[] = {
   B00000
 };
 
-const byte customHeart[] = {
-  B00000,
-  B01010,
-  B10101,
-  B10001,
-  B10001,
-  B01010,
-  B00100,
-  B00000
-};
-
 const byte customLeftArrow[] = {
   B00000,
   B00100,
@@ -292,15 +298,27 @@ const unsigned short int buzzerAddress = 160;
 const unsigned short int lcdValueAddress = 192;
 const unsigned short int matrixValueAddress = 224;
 const unsigned short int speedAddress = 256;
-const unsigned short int damageAddress = 288;
+const unsigned short int levelAddress = 288;
 
-
+const int initialSnakeRow = 5;
+const int initialSnakeCol = 7;
+struct Snake {
+  short int headRow = initialSnakeRow;
+  short int headCol = initialSnakeCol;
+};
+Snake snake;
+int matrix[matrixSize][matrixSize] = {};
 struct playerHighScore {
   char name[6] = "N/A";
   unsigned short int score = 0;
 };
+int initialSnakeLength = 2;
+short int lastSnakeDirection = right;
 
-char currentName[6] = "AAAAA";
+int gameState = 1;
+int snakeLength;
+
+char currentName[6] = "     ";
 unsigned long startDisplay1Time = millis();
 unsigned short int difficulty = 1;
 
@@ -313,7 +331,6 @@ void setup() {
 
   randomSeed(analogRead(0));
 
-  // set up the LCD's number of columns and rows:
   lcd.begin(16, 2);
 
   lcd.createChar(upArrow, customUpArrow);
@@ -321,8 +338,6 @@ void setup() {
   lcd.createChar(leftArrow, customLeftArrow);
   lcd.home();
   lcd.createChar(rightArrow, customRightArrow);
-  lcd.home();
-  lcd.createChar(heart, customHeart);
   lcd.home();
   lcd.createChar(downArrow, customDownArrow);
   lcd.home();
@@ -336,9 +351,31 @@ void setup() {
   EEPROM.get(buzzerAddress, audioOn);
   EEPROM.get(lcdValueAddress, lcdValueMapped);
   EEPROM.get(matrixValueAddress, matrixValue);
-  lc.setIntensity(0, matrixValue);  
+  lc.setIntensity(0, matrixValue);
   EEPROM.get(speedAddress, speed);
-  EEPROM.get(damageAddress, damage);
+  EEPROM.get(levelAddress, level);
+
+  snakeLength = initialSnakeLength;
+  snakeDirection = initialSnakeDirection;
+  lastSnakeDirection = snakeDirection;
+  snakeSpeed = 0;
+
+  resetMatrix();
+
+  lc.shutdown(0, false);
+  lc.clearDisplay(0);
+
+  randomSeed(analogRead(0));
+
+  matrix[snake.headRow][snake.headCol] = snakeLength;
+}
+
+void resetMatrix() {
+  for (int row = 0; row < 8; row++) {
+    for (int col = 0; col < 8; col++) {
+      matrix[row][col] = 0;
+    }
+  }
 }
 
 void loop() {
@@ -353,80 +390,37 @@ void updateByteMatrix(const byte matrix[]) {
 }
 
 void updatePositions() {
+  if (millis() - lastJoyMove <= joyDebounce) {
+    return;
+  }
+
   int xValue = analogRead(xPin);
   int yValue = analogRead(yPin);
 
   xLastPos = xPos;
   yLastPos = yPos;
   if (xValue < minThreshold) {
-    if (xPos < matrixSize - 1) {
-      xPos++;
-    } else {
-      xPos = 0;
-    }
+    snakeDirection = 2;
   }
   if (xValue > maxThreshold) {
-    if (xPos > 0) {
-      xPos--;
-    } else {
-      xPos = matrixSize - 1;
-    }
+    snakeDirection = 0;
   }
 
   if (yValue > maxThreshold) {
-    if (yPos > 0) {
-      yPos--;
-    } else {
-      yPos = matrixSize - 1;
-    }
+    snakeDirection = 1;
   }
 
   if (yValue < minThreshold) {
-
-    if (yPos < matrixSize - 1) {
-      yPos++;
-    } else {
-      yPos = 0;
-    }
-  }
-  if (xPos != xLastPos || yPos != yLastPos) {
-    matrixChanged = true;
-    matrixByte[xLastPos] &= (0 << yLastPos);
-    matrixByte[xPos] |= (1 << yPos);
+    snakeDirection = 3;
   }
 }
 
 void blink() {
   if (millis() - lastBlinkTime > blinkDuration) {
     lastBlinkTime = millis();
-    matrixByte[newFoodPosX] ^= (1 << newFoodPosY);
-    lc.setRow(0, newFoodPosX, matrixByte[newFoodPosX]);
+    foodBlinkStatus = !foodBlinkStatus;
+    lc.setLed(0, newFoodPosX, newFoodPosY, foodBlinkStatus);
   }
-}
-
-void collision() {
-  if (newFoodPosX == xPos && newFoodPosY == yPos) {
-    score++;
-    needFood = true;
-    matrixChanged = true;
-  }
-
-  matrixByte[xPos] |= (1 << yPos);
-  lc.setRow(0, newFoodPosX, matrixByte[newFoodPosX]);
-}
-
-void generateFood() {
-  newFoodPosX = random(minRow, maxRow);
-  newFoodPosY = random(minCol, maxCol);
-
-  if (newFoodPosX == xPos && newFoodPosY == yPos) {
-    generateFood();
-  }
-
-  matrixByte[newFoodPosX] |= (1 << newFoodPosY);
-  matrixChanged = true;
-
-  needFood = false;
 }
 
 void displayPartialMessage(char* text) {
@@ -495,7 +489,10 @@ void pressButtonInMenu(const bool givenGoToAction) {
     }
     if (givenGoToAction && menuOption == 1) {
       score = 0;
+      snakeLength = initialSnakeLength;
       gameCanRun = true;
+      isWin = false;
+      isGameOver = false;
       startGameTime = millis();
     }
     if (givenGoToAction && (menuOption == 2 || menuOption == 3 || menuOption == 4 || menuOption == 5)) {
@@ -516,15 +513,16 @@ void pressButtonInMenu(const bool givenGoToAction) {
 
 void restartMatrix() {
   for (int row = 0; row < matrixSize; row++) {
-    matrixByte[row] = B00000000;
+    for (int col = 0; col < matrixSize; col++) {
+      matrix[row][col] = 0;
+    }
   }
 }
 
 void closeGame() {
   restartMatrix();
-  updateByteMatrix(matrixByte);
   xPos = 0;
-  yPos = 7;
+  yPos = 0;
   needFood = 1;
 }
 
@@ -611,27 +609,44 @@ void menu() {
       }
   }
 }
-
+void setDifficulty() {
+  if (speed == 1) {
+    speedFactor = 12;
+  }
+  if (speed == 2) {
+    speedFactor = 15;
+  }
+  if (speed == 3) {
+    speedFactor = 17;
+  }
+  if (level == 1) {
+    maximumLength = 9;
+  }
+  if (level == 2) {
+    maximumLength = 12;
+  }
+  if (level == 3) {
+    maximumLength = 15;
+  }
+}
 void game() {
+  setDifficulty();
   if (gameCanRun) {
 
-    updateByteMatrix(matrixByte);
     if (needFood) {
       generateFood();
     }
-    if (millis() - lastMoved > moveInterval) {
-      updatePositions();
+    updatePositions();
+    changeSpeed();
+    if (millis() - lastMoved > moveInterval - snakeSpeed) {
       lastMoved = millis();
+      showSnake();
     }
-    if (matrixChanged == true) {
-      updateByteMatrix(matrixByte);
-      matrixChanged = false;
-    }
-    blink();
-    collision();
-    if (score >= maximumScore) {
+
+    if (isGameOver || isWin) {
       shouldDisplayFinish1 = true;
       gameCanRun = false;
+      endGameSounds();
       closeGame();
     }
     currentGameTime = millis();
@@ -697,17 +712,15 @@ void displayPlayingGame() {
     lcd.clear();
     cleared = 1;
   }
-
-  char message0[15] = "Hi, ";
-  strcat(message0, currentName);
-  lcd.setCursor(0, 0);
-  lcd.print(message0);
-
-  lcd.setCursor(15, 0);
-  lcd.write(heart);
-  lcd.setCursor(14, 0);
-  lcd.print("3");
-
+  if (!changedName) {
+    lcd.setCursor(0, 0);
+    lcd.print("Hi!");
+  } else {
+    char message0[15] = "Hi, ";
+    strcat(message0, currentName);
+    lcd.setCursor(0, 0);
+    lcd.print(message0);
+  }
 
 
   char buffer[7] = "";
@@ -742,6 +755,9 @@ void scrollMenu(const unsigned short int minBoundary, const unsigned short int m
   joyMoved = 0;
   direction = 0;
   chrOption = currentName[chrPos];
+  if (chrOption == ' ') {
+    chrOption = 65;
+  }
   if (menuOption == 2 && setting && (settingsOption == 1 || settingsOption == 2)) {
     if (xValue < minThreshold) {
       joyMoved = true;
@@ -789,15 +805,12 @@ void scrollMenu(const unsigned short int minBoundary, const unsigned short int m
 
   if (!settingsDirection && shouldTransition && !transitioned && menuOption == 2 && setting && settingsOption == 1) {
     if (direction == down) {
-      Serial.println("down");
-
       if (chrOption == 65) {
         chrOption = 90;
       } else {
         chrOption--;
       }
     } else {
-      Serial.println("up");
 
       if (chrOption == 90) {
         chrOption = 65;
@@ -805,26 +818,28 @@ void scrollMenu(const unsigned short int minBoundary, const unsigned short int m
         chrOption++;
       }
     }
-    Serial.println(chrOption);
     currentName[chrPos] = chrOption;
+    changedName = true;
 
   } else if (!settingsDirection && shouldTransition && !transitioned && menuOption == 2 && setting && settingsOption == 2) {
     if (direction == down) {
 
       if (diffOption == 1) {
         diffOption = 2;
-      } 
+      }
     } else {
 
       if (diffOption == 2) {
         diffOption = 1;
       }
     }
-    Serial.println(chrOption);
     currentName[chrPos] = chrOption;
 
   } else if (!settingsDirection && shouldTransition && !transitioned) {
     option += direction;
+    if (inMenu) {
+      activateBuzzer();
+    }
     lcd.clear();
     characterCursor = 0;
   } else if (shouldTransition && !transitioned) {
@@ -841,6 +856,10 @@ void scrollMenu(const unsigned short int minBoundary, const unsigned short int m
       lcdValueMapped += 10;
       lcdValueMapped = lcdValueMapped % 256;
       lcdValueMapped = lcdValueMapped / 10 * 10;
+      if (lcdValueMapped <= 40) {
+        lcdValueMapped = 40;
+      }
+
       EEPROM.put(lcdValueAddress, lcdValueMapped);
       lcd.setCursor(11, 0);
       lcd.print("     ");
@@ -851,9 +870,9 @@ void scrollMenu(const unsigned short int minBoundary, const unsigned short int m
       EEPROM.put(speedAddress, speed);
 
     } else if (setting && settingsOption == 2 && settingsDirection == up && diffOption == 2) {
-      damage += 1;
-      damage = (damage % 3);
-      EEPROM.put(speedAddress, damage);
+      level += 1;
+      level = (level % 3);
+      EEPROM.put(speedAddress, level);
 
     } else if (setting && settingsOption == 4 && settingsDirection == up) {
 
@@ -962,8 +981,8 @@ void settings(short int settingsOption) {
           lcd.setCursor(15, 0);
           lcd.write(rightArrow);
           lcd.setCursor(0, 1);
-          if (!strcmp(currentName, "AAAAA")) {
-            displayWholeMessage("Choose username (max. 5 characters)");
+          if (!changedName) {
+            displayWholeMessage("Hello! Choose username (max. 5 characters)");
           } else {
             char usernameText[60] = "Hello, ";
             strcat(usernameText, currentName);
@@ -1062,17 +1081,16 @@ void settings(short int settingsOption) {
           lcd.setCursor(0, 0);
           lcd.print("Speed: ");
           lcd.setCursor(9, 0);
-          lcd.print(speed+1);
+          lcd.print(speed + 1);
           lcd.setCursor(0, 1);
-          lcd.print("Damage: ");
+          lcd.print("Level: ");
           lcd.setCursor(9, 1);
-          lcd.print(damage+1);
+          lcd.print(level + 1);
           lcd.setCursor(14, 0);
 
-          if(diffOption == 1) {
-          lcd.write(downArrow);
-          }
-          else {
+          if (diffOption == 1) {
+            lcd.write(downArrow);
+          } else {
             lcd.write(upArrow);
           }
 
@@ -1092,7 +1110,7 @@ void settings(short int settingsOption) {
           lcd.setCursor(0, 0);
           lcd.print("Brightness:");
           lcd.setCursor(11, 0);
-          lcd.print(lcdValueMapped);
+          lcd.print(lcdValueMapped - 40);
           lcd.setCursor(0, 1);
           displayWholeMessage("Scroll right  to change");
           break;
@@ -1206,7 +1224,6 @@ void initializeHighScoreEeprom() {
 
 void updateHighScores() {
   playerHighScore highScores[5];
-  Serial.println("Update");
   for (int i = 0; i < 5; i++) {
     EEPROM.get(hsAddress[i], highScores[i]);
   }
@@ -1309,4 +1326,151 @@ void activateBuzzer() {
       buzzerStart = millis();
     }
   }
+}
+
+void endGameSounds() {
+
+  if (audioOn) {
+    if (isGameOver) {
+      if (audioOn) {
+        sadSound();
+      }
+    }
+
+    if (isWin) {
+      if (audioOn) {
+
+        happySound();
+      }
+    }
+  }
+
+  removeSnake();
+  gameState = 0;
+}
+
+
+void sadSound() {
+  tone(buzzerPin, 1000, 200);
+  delay(200);
+  tone(buzzerPin, 800, 200);
+  delay(200);
+  tone(buzzerPin, 600, 200);
+}
+
+void happySound() {
+  tone(buzzerPin, 500, 200);
+  delay(200);
+  tone(buzzerPin, 500, 200);
+  delay(200);
+  tone(buzzerPin, 1000, 500);
+}
+
+void removeSnake() {
+  lc.setLed(0, newFoodPosX, newFoodPosX, 0);
+
+  for (int i = snakeLength; i >= 1; i--) {
+    for (int row = 0; row < 8; row++) {
+      for (int col = 0; col < 8; col++) {
+        if (matrix[row][col] == i) {
+          lc.setLed(0, row, col, 0);
+          delay(100);
+        }
+      }
+    }
+  }
+}
+
+
+void showSnake() {
+  if (snakeDirection == lastSnakeDirection - 2 || snakeDirection == lastSnakeDirection + 2) {
+    snakeDirection = lastSnakeDirection;
+  }
+
+  switch (snakeDirection) {
+    case 0:  //up
+      snake.headRow--;
+      if (snake.headRow < 0) snake.headRow = 7;
+      lc.setLed(0, snake.headRow, snake.headCol, HIGH);
+      break;
+
+    case 2:  //down
+      snake.headRow++;
+      if (snake.headRow > 7) snake.headRow = 0;
+      lc.setLed(0, snake.headRow, snake.headCol, HIGH);
+      break;
+
+    case 1:  //right
+      snake.headCol++;
+      if (snake.headCol > 7) snake.headCol = 0;
+      lc.setLed(0, snake.headRow, snake.headCol, HIGH);
+      break;
+
+    case 3:  //left
+      snake.headCol--;
+      if (snake.headCol < 0) snake.headCol = 7;
+      lc.setLed(0, snake.headRow, snake.headCol, HIGH);
+      break;
+  }
+
+  lastSnakeDirection = snakeDirection;
+
+  if (matrix[snake.headRow][snake.headCol] > 1) {
+    isGameOver = true;
+    return;
+  }
+
+  if (snake.headRow == newFoodPosX && snake.headCol == newFoodPosY) {
+    lc.setLed(0, newFoodPosX, newFoodPosY, HIGH);
+
+    if (audioOn == true) {
+      tone(buzzerPin, 1000, 250);
+    }
+    needFood = true;
+
+    snakeLength++;
+
+    for (int row = 0; row < matrixSize; row++) {
+      for (int col = 0; col < matrixSize; col++) {
+        if (matrix[row][col] > 0) {
+          matrix[row][col]++;
+        }
+      }
+    }
+  }
+
+  matrix[snake.headRow][snake.headCol] = snakeLength + 1;
+
+  for (int row = 0; row < matrixSize; row++) {
+    for (int col = 0; col < matrixSize; col++) {
+      if (matrix[row][col] > 0) {
+        matrix[row][col]--;
+      }
+      lc.setLed(0, row, col, matrix[row][col] == 0 ? 0 : 1);
+    }
+  }
+  blink();
+
+  score = snakeLength - initialSnakeLength;
+}
+
+void changeSpeed() {
+  if (millis() - lastSpeedChange > speedChangeDuration) {
+    lastSpeedChange = millis();
+
+    if (snakeSpeed <= maxSpeed - speedFactor) {
+      snakeSpeed += speedFactor;
+    }
+  }
+}
+void generateFood() {
+  if (snakeLength == maximumLength) {
+    isWin = true;
+  }
+  do {
+    newFoodPosX = random(0, matrixSize);
+    newFoodPosY = random(0, matrixSize);
+  } while (matrix[newFoodPosX][newFoodPosY] > 0);
+
+  needFood = false;
 }
